@@ -1,26 +1,40 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
+
+	"github.com/ekideno/go-priority-scheduler-web/internal/web"
 )
 
 func main() {
+
+	mux := http.NewServeMux()
+	web.RegisterHandlers(mux)
+	web.RegisterAPIRoutes(mux)
+
 	s := &http.Server{
-		Addr: ":8080",
-		// Handler:        myHandler,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20,
+		Addr:    ":8080",
+		Handler: mux,
 	}
+	go func() {
+		log.Println("Starting web server at http://localhost:8080")
+		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
 
-	fmt.Println("Server working")
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+	log.Println("Shutting down server...")
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "Hello world")
-	})
-	log.Fatal(s.ListenAndServe())
+	ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelTimeout()
+	s.Shutdown(ctxTimeout)
 
 }
