@@ -8,22 +8,25 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/ekideno/go-priority-scheduler-web/internal/web"
+	web "github.com/ekideno/go-priority-scheduler-web/internal/web/handlers"
+	"github.com/ekideno/go-priority-scheduler-web/internal/web/scheduler"
 )
 
 func main() {
 
-	mux := http.NewServeMux()
-	web.RegisterHandlers(mux)
-	web.RegisterAPIRoutes(mux)
+	sched := scheduler.New(5)
+	router := web.NewRouter(sched)
 
-	s := &http.Server{
-		Addr:    ":8080",
-		Handler: mux,
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 	go func() {
 		log.Println("Starting web server at http://localhost:8080")
-		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
@@ -35,6 +38,7 @@ func main() {
 
 	ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelTimeout()
-	s.Shutdown(ctxTimeout)
+	srv.Shutdown(ctxTimeout)
+	sched.Shutdown()
 
 }
