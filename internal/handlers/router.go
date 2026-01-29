@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ekideno/go-priority-scheduler-web/internal/web/scheduler"
+	"github.com/ekideno/go-priority-scheduler-web/internal/scheduler"
 )
 
 func NewRouter(s *scheduler.Scheduler) http.Handler {

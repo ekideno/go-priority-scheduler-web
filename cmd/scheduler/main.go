@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"time"
 
-	web "github.com/ekideno/go-priority-scheduler-web/internal/web/handlers"
-	"github.com/ekideno/go-priority-scheduler-web/internal/web/scheduler"
+	web "github.com/ekideno/go-priority-scheduler-web/internal/handlers"
+	"github.com/ekideno/go-priority-scheduler-web/internal/scheduler"
 )
 
 func main() {
