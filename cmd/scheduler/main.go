@@ -31,6 +31,17 @@ func main() {
 		}
 	}()
 
+	sched.Schedule(&scheduler.Job{Name: "task1", Duration: 3 * time.Second, Priority: 1, Execute: func(ctx context.Context, d time.Duration) {
+		time.Sleep(d)
+		log.Println("task1 done")
+	}})
+
+	time.Sleep(5 * time.Second)
+	sched.Schedule(&scheduler.Job{Name: "task2", Duration: 3 * time.Second, Priority: 1, Execute: func(ctx context.Context, d time.Duration) {
+		time.Sleep(d)
+		log.Println("task2 done")
+	}})
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit

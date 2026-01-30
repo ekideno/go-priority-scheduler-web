@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -10,6 +11,7 @@ type Worker struct {
 	id      int
 	Current *Job
 	jobChan chan *Job
+	mutex   sync.Mutex
 }
 
 func NewWorker(id int) *Worker {
@@ -17,6 +19,7 @@ func NewWorker(id int) *Worker {
 		id:      id,
 		jobChan: make(chan *Job, 1),
 		Current: nil,
+		mutex:   sync.Mutex{},
 	}
 }
 
@@ -45,7 +48,9 @@ func (w *Worker) Start(ctx context.Context) {
 
 func (w *Worker) process(ctx context.Context, job *Job) {
 
+	w.mutex.Lock()
 	w.Current = job
+	w.mutex.Unlock()
 
 	log.Printf("Worker %d processing job %s (priority: %d)",
 		w.id, job.Name, job.Priority)
@@ -56,15 +61,20 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 	log.Printf("Worker %d completed job %s in %v",
 		w.id, job.Name, time.Since(start))
 
+	w.mutex.Lock()
 	w.Current = nil
+	w.mutex.Unlock()
 
 }
 
 func (w *Worker) IsFree() bool {
-
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
 	return w.Current == nil
 }
 
 func (w *Worker) GetCurrent() *Job {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
 	return w.Current
 }

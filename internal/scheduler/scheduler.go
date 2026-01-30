@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,7 @@ type Scheduler struct {
 	workers []*Worker
 	ctx     context.Context
 	cancel  context.CancelFunc
+	mutex   sync.Mutex
 }
 
 func New(numWorkers int) *Scheduler {
@@ -23,6 +25,7 @@ func New(numWorkers int) *Scheduler {
 		workers: make([]*Worker, numWorkers),
 		ctx:     ctx,
 		cancel:  cancel,
+		mutex:   sync.Mutex{},
 	}
 
 	heap.Init(&s.jobs)
@@ -58,13 +61,19 @@ func (s *Scheduler) dispatch() {
 }
 
 func (s *Scheduler) tryDispatch() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	if s.jobs.Len() == 0 {
 		return
 	}
 
 	for _, worker := range s.workers {
-		if worker.IsFree() && s.jobs.Len() > 0 {
+		worker.mutex.Lock()
+		free := worker.Current == nil
+		worker.mutex.Unlock()
+
+		if free && s.jobs.Len() > 0 {
 			job := heap.Pop(&s.jobs).(*Job)
 
 			select {
@@ -78,12 +87,12 @@ func (s *Scheduler) tryDispatch() {
 }
 
 func (s *Scheduler) Schedule(job *Job) {
-
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.jobID++
 	job.ID = s.jobID
-	heap.Push(&s.jobs, job)
 
-	log.Printf("Job %s scheduled (priority: %d)", job.Name, job.Priority)
+	heap.Push(&s.jobs, job)
 }
 
 func (s *Scheduler) Shutdown() {
@@ -113,12 +122,13 @@ func (s *Scheduler) GetStatus() []WorkerStatus {
 }
 
 func (s *Scheduler) GetQueuedJobs() []*Job {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	jobs := make([]*Job, s.jobs.Len())
 	for i := 0; i < len(jobs); i++ {
 		jobs[i] = s.jobs[i]
 	}
-
 	return jobs
 }
 
