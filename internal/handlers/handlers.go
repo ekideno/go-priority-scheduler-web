@@ -57,16 +57,18 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	jobName := req.Name
+
 	job := &scheduler.Job{
-		Name:     req.Name,
+		Name:     jobName,
 		Priority: req.Priority,
 		Duration: time.Duration(req.Duration) * time.Second,
 		Execute: func(ctx context.Context, d time.Duration) {
 			select {
 			case <-time.After(d):
-				log.Printf("Job '%s' completed", req.Name)
+				log.Printf("Job '%s' completed", jobName)
 			case <-ctx.Done():
-				log.Printf("Job '%s' cancelled", req.Name)
+				log.Printf("Job '%s' cancelled", jobName)
 			}
 		},
 	}

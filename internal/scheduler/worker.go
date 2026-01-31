@@ -30,18 +30,10 @@ func (w *Worker) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Worker %d shutting down", w.id)
 			return
 
-		case job, ok := <-w.jobChan:
-			if !ok {
-				log.Printf("Worker %d: channel closed", w.id)
-				return
-			}
-
-			if job != nil {
-				w.process(ctx, job)
-			}
+		case job := <-w.jobChan:
+			w.process(ctx, job)
 		}
 	}
 }

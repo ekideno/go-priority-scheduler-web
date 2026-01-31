@@ -9,17 +9,17 @@ import (
 )
 
 type Scheduler struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
 	jobs    JobPriorityQueue
 	jobID   int64
 	workers []*Worker
-	ctx     context.Context
-	cancel  context.CancelFunc
 	mutex   sync.Mutex
+	wg      sync.WaitGroup
 }
 
-func New(numWorkers int) *Scheduler {
-	ctx, cancel := context.WithCancel(context.Background())
-
+func New(numWorkers int, parent context.Context) *Scheduler {
+	ctx, cancel := context.WithCancel(parent)
 	s := &Scheduler{
 		jobs:    make(JobPriorityQueue, 0),
 		workers: make([]*Worker, numWorkers),
@@ -27,24 +27,28 @@ func New(numWorkers int) *Scheduler {
 		cancel:  cancel,
 		mutex:   sync.Mutex{},
 	}
-
 	heap.Init(&s.jobs)
 
 	for i := 0; i < numWorkers; i++ {
 		s.workers[i] = NewWorker(i)
-
-		go s.workers[i].Start(ctx)
+		s.wg.Add(1)
+		go func(w *Worker) {
+			defer s.wg.Done()
+			w.Start(ctx)
+		}(s.workers[i])
 	}
 
-	go s.dispatch()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.dispatch()
+	}()
 
 	return s
 }
 
 func (s *Scheduler) dispatch() {
-
 	log.Println("Dispatcher started")
-
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -53,7 +57,6 @@ func (s *Scheduler) dispatch() {
 		case <-s.ctx.Done():
 			log.Println("Dispatcher shutting down")
 			return
-
 		case <-ticker.C:
 			s.tryDispatch()
 		}
@@ -62,28 +65,25 @@ func (s *Scheduler) dispatch() {
 
 func (s *Scheduler) tryDispatch() {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	if s.jobs.Len() == 0 {
+		s.mutex.Unlock()
 		return
 	}
+	job := heap.Pop(&s.jobs).(*Job)
+	s.mutex.Unlock()
 
 	for _, worker := range s.workers {
-		worker.mutex.Lock()
-		free := worker.Current == nil
-		worker.mutex.Unlock()
-
-		if free && s.jobs.Len() > 0 {
-			job := heap.Pop(&s.jobs).(*Job)
-
-			select {
-			case worker.jobChan <- job:
-				log.Printf("Job %s dispatched to worker %d", job.Name, worker.id)
-			default:
-				heap.Push(&s.jobs, job)
-			}
+		select {
+		case worker.jobChan <- job:
+			log.Printf("Job %s dispatched to worker %d", job.Name, worker.id)
+			return
+		default:
 		}
 	}
+
+	s.mutex.Lock()
+	heap.Push(&s.jobs, job)
+	s.mutex.Unlock()
 }
 
 func (s *Scheduler) Schedule(job *Job) {
@@ -91,24 +91,31 @@ func (s *Scheduler) Schedule(job *Job) {
 	defer s.mutex.Unlock()
 	s.jobID++
 	job.ID = s.jobID
-
 	heap.Push(&s.jobs, job)
 }
 
-func (s *Scheduler) Shutdown() {
+func (s *Scheduler) Shutdown(ctx context.Context) error {
 	log.Println("Shutting down scheduler...")
 	s.cancel()
 
-	for _, w := range s.workers {
-		close(w.jobChan)
-	}
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
 
-	log.Println("All workers stopped")
+	select {
+	case <-done:
+		log.Println("Scheduler shutdown finished successfully")
+		return nil
+	case <-ctx.Done():
+		log.Println("Scheduler shutdown timeout")
+		return ctx.Err()
+	}
 }
 
 func (s *Scheduler) GetStatus() []WorkerStatus {
 	statuses := make([]WorkerStatus, len(s.workers))
-
 	for i, worker := range s.workers {
 		current := worker.GetCurrent()
 		statuses[i] = WorkerStatus{
@@ -117,14 +124,12 @@ func (s *Scheduler) GetStatus() []WorkerStatus {
 			CurrentJob: current,
 		}
 	}
-
 	return statuses
 }
 
 func (s *Scheduler) GetQueuedJobs() []*Job {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-
 	jobs := make([]*Job, s.jobs.Len())
 	for i := 0; i < len(jobs); i++ {
 		jobs[i] = s.jobs[i]

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,8 +14,10 @@ import (
 )
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	sched := scheduler.New(5)
+	sched := scheduler.New(5, ctx)
 	router := web.NewRouter(sched)
 
 	srv := &http.Server{
@@ -23,6 +26,9 @@ func main() {
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
+		BaseContext: func(_ net.Listener) context.Context {
+			return ctx
+		},
 	}
 	go func() {
 		log.Println("Starting web server at http://localhost:8080")
@@ -31,25 +37,24 @@ func main() {
 		}
 	}()
 
-	sched.Schedule(&scheduler.Job{Name: "task1", Duration: 3 * time.Second, Priority: 1, Execute: func(ctx context.Context, d time.Duration) {
-		time.Sleep(d)
-		log.Println("task1 done")
-	}})
-
-	time.Sleep(5 * time.Second)
-	sched.Schedule(&scheduler.Job{Name: "task2", Duration: 3 * time.Second, Priority: 1, Execute: func(ctx context.Context, d time.Duration) {
-		time.Sleep(d)
-		log.Println("task2 done")
-	}})
-
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
 	log.Println("Shutting down server...")
 
-	ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelTimeout()
-	srv.Shutdown(ctxTimeout)
-	sched.Shutdown()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
+	cancel()
+
+	if err := sched.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Scheduler shutdown error: %v", err)
+	}
+
+	log.Println("Server stopped gracefully")
 
 }
